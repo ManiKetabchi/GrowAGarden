@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grow a Garden</title>
+  <style>
+    body, html { margin: 0; padding: 0; overflow: auto; background-color: #5c8a3d; font-family: sans-serif; width: 100vw; height: 100vh; }
+    #gameContainer { position: relative; width: 100%; height: 100%; }
+    canvas { position: absolute; top: 0; left: 0; }
+    #inventory { position: absolute; bottom: 20px; left: 20px; display: flex; gap: 12px; padding: 8px; background: rgba(255,255,255,0.8); border: 2px solid #5A2E0F; border-radius: 4px; z-index: 10; }
+    .inv-item { display: flex; align-items: center; gap: 4px; padding: 4px 8px; background: #f0f0f0; border: 2px solid #5A2E0F; border-radius: 4px; cursor: pointer; user-select: none; font-family: monospace; font-size: 18px; }
+    #shopButton, #achieveButton { position: absolute; top: 20px; padding: 8px 12px; background: #a8d5a2; border: 4px solid #5A2E0F; border-radius: 4px; cursor: pointer; font-size: 14px; z-index: 10; }
+    #shopButton { right: 20px; }
+    #achieveButton { right: 140px; }
+    .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 20; }
+    .modalContent { background: #fff; border: 4px solid #5A2E0F; border-radius: 8px; padding: 20px; width: 300px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+    .modalContent h2 { margin-top: 0; }
+    .shop-item, .achieve-item { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; padding: 8px; background: #f0f0f0; border: 1px solid #ccc; border-radius: 4px; }
+    .shop-item button, .achieve-item button { padding: 4px 8px; cursor: pointer; background: #a8d5a2; border: 2px solid #5A2E0F; border-radius: 4px; }
+    .closeBtn { margin-top: 12px; padding: 8px 12px; cursor: pointer; background: #e07a5f; color: #fff; border: none; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="gameContainer">
+    <canvas id="gameCanvas"></canvas>
+    <button id="shopButton">Seed Shop</button>
+    <button id="achieveButton">Achievements</button>
+    <div id="inventory">
+      <div class="inv-item" data-item="carrot">🥕 <span id="count-carrot">0</span></div>
+      <div class="inv-item" data-item="tomato">🍅 <span id="count-tomato">0</span></div>
+    </div>
+  </div>
+  <div id="shopModal" class="modal">
+    <div id="shopContent" class="modalContent">
+      <h2>Seed Shop</h2>
+      <div class="shop-item"><span>🥕 Carrot - $10</span><button data-item="carrot" data-price="10">Buy</button></div>
+      <div class="shop-item"><span>🍅 Tomato - $25</span><button data-item="tomato" data-price="25">Buy</button></div>
+      <button id="closeShop" class="closeBtn">Close</button>
+    </div>
+  </div>
+  <div id="achieveModal" class="modal">
+    <div class="modalContent">
+      <h2>Achievements</h2>
+      <div id="achievementsList"></div>
+      <button id="closeAchieve" class="closeBtn">Close</button>
+    </div>
+  </div>
+  <script>
+    const canvas = document.getElementById('gameCanvas'), ctx = canvas.getContext('2d');
+    const invItems = document.querySelectorAll('.inv-item');
+    const dirt = { size: 200, x: 0, y: 0, color: '#8B4513', outline: '#5A2E0F', outlineWidth: 10 };
+    let money = 100, errorMsg = '', errorTimer = 0;
+    const inventory = { carrot: 0, tomato: 0 };
+    const planted = [];
+    const seedPrices = { carrot: 10, tomato: 25 };
+    const minDistance = 30;
+    let hoverIndex = -1, selectedItem = null;
+    const achievements = {
+      firstPlant: { text: 'Planted first seed', done: false },
+      sold10: { text: 'Sold $10', progress: 0, done: false, threshold: 10 },
+      sold100: { text: 'Sold $100', progress: 0, done: false, threshold: 100 },
+      sold1000: { text: 'Sold $1000', progress: 0, done: false, threshold: 1000 },
+      goldenTomato: { text: 'Grow a golden tomato', done: false }
+    };
+    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; dirt.x = (canvas.width - dirt.size)/2; dirt.y = (canvas.height - dirt.size)/2; }
+    window.addEventListener('resize', resize); resize();
+    let lastTime = 0;
+    function loop(ts) {
+      if (!lastTime) lastTime = ts; const delta = ts - lastTime; lastTime = ts;
+      for (let i = planted.length - 1; i >= 0; i--) if (!planted[i]) planted.splice(i, 1);
+      planted.filter(p => p).forEach(p => {
+        if (p.growth < 100) p.growth = Math.min(100, p.growth + 5*(delta/1000));
+        if (p.growth >= 100 && p.weight === undefined) {
+          p.weight = (Math.random()*4+1).toFixed(2);
+          p.salePrice = Math.round(p.weight * seedPrices[p.item]);
+        }
+      });
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle='#5c8a3d'; ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle=dirt.color; ctx.fillRect(dirt.x,dirt.y,dirt.size,dirt.size);
+      ctx.lineWidth=dirt.outlineWidth; ctx.strokeStyle=dirt.outline; ctx.strokeRect(dirt.x,dirt.y,dirt.size,dirt.size);
+      ctx.fillStyle='yellow'; ctx.font='16px monospace'; ctx.fillText(`Money: ${money}`,20,26);
+      if(errorTimer>0){ctx.fillStyle='red';ctx.font='18px monospace';ctx.fillText(errorMsg,20,60);errorTimer-=delta;}
+      ctx.fillStyle='red';ctx.font='16px monospace';ctx.fillText('Press ESC to deselect',20,canvas.height-100);
+      planted.filter(p=>p).forEach(p=>{const icon=p.growth<100?'🌱':(p.item==='carrot'?'🥕':'🍅');const fs=p.growth<100?24:(20+parseFloat(p.weight)*8)/2;ctx.font=`${fs}px sans-serif`;ctx.fillText(icon,p.x,p.y);});
+      if(hoverIndex>=0&&planted[hoverIndex]){const p=planted[hoverIndex];ctx.font='14px monospace';ctx.fillStyle='white';const info=p.growth<100?`${Math.floor(p.growth)}%`:`${p.weight}kg - $${p.salePrice}`;const off=p.growth<100?20:((20+parseFloat(p.weight)*8)/2);ctx.fillText(info,p.x,p.y+off);}      
+      requestAnimationFrame(loop);
+    }
+    loop();
+    invItems.forEach(d=>d.addEventListener('click',()=>{selectedItem=d.dataset.item;invItems.forEach(x=>x.style.borderColor='#5A2E0F');d.style.borderColor='yellow';}));
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'){selectedItem=null;invItems.forEach(x=>x.style.borderColor='#5A2E0F');}});
+    canvas.addEventListener('click',e=>{const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top; if(selectedItem&&x>=dirt.x&&x<=dirt.x+dirt.size&&y>=dirt.y&&y<=dirt.y+dirt.size){for(const p of planted)if(p&&Math.hypot(p.x-x,p.y-y)<minDistance){errorMsg="Can't place so close!";errorTimer=2000;return;}if(inventory[selectedItem]>0){inventory[selectedItem]--;document.getElementById(`count-${selectedItem}`).textContent=inventory[selectedItem];planted.push({item:selectedItem,x,y,growth:0});if(!achievements.firstPlant.done)achievements.firstPlant.done=true;}}else{for(let i=planted.length-1;i>=0;i--){const p=planted[i];if(p&&p.growth>=100){const sz=(20+parseFloat(p.weight)*8)/2;if(x>=p.x&&x<=p.x+sz&&y>=p.y-sz&&y<=p.y){money+=p.salePrice;achievements.sold10.progress+=p.salePrice;achievements.sold100.progress+=p.salePrice;achievements.sold1000.progress+=p.salePrice;if(achievements.sold10.progress>=10)achievements.sold10.done=true;if(achievements.sold100.progress>=100)achievements.sold100.done=true;if(achievements.sold1000.progress>=1000)achievements.sold1000.done=true;planted.splice(i,1);break;}}}}});
+    canvas.addEventListener('mousemove',e=>{const r=canvas.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;hoverIndex=-1;planted.forEach((p,i)=>{if(p){const sz=p.growth<100?24:(20+parseFloat(p.weight)*8)/2;if(mx>=p.x&&mx<=p.x+sz&&my>=p.y-sz&&my<=p.y)hoverIndex=i;}});});
+    const shopButton=document.getElementById('shopButton'),shopModal=document.getElementById('shopModal'),closeShop=document.getElementById('closeShop');shopButton.addEventListener('click',()=>shopModal.style.display='flex');closeShop.addEventListener('click',()=>shopModal.style.display='none');shopModal.addEventListener('click',e=>{if(e.target===shopModal)shopModal.style.display='none';});document.querySelectorAll('.shop-item button').forEach(btn=>btn.addEventListener('click',e=>{const item=e.target.dataset.item,price=parseInt(e.target.dataset.price);if(money>=price){money-=price;inventory[item]++;document.getElementById(`count-${item}`).textContent=inventory[item];}else{errorMsg='Not enough money';errorTimer=2000;}}));
+    const achieveButton=document.getElementById('achieveButton'),achieveModal=document.getElementById('achieveModal'),closeAchieve=document.getElementById('closeAchieve'),achievementsList=document.getElementById('achievementsList');function updateAchievements(){achievementsList.innerHTML='';Object.values(achievements).forEach(a=>{const d=document.createElement('div');d.className='achieve-item';d.textContent=(a.done?'✔️ ':'❌ ')+a.text;achievementsList.appendChild(d);});}achieveButton.addEventListener('click',()=>{updateAchievements();achieveModal.style.display='flex';});closeAchieve.addEventListener('click',()=>achieveModal.style.display='none');achieveModal.addEventListener('click',e=>{if(e.target===achieveModal)achieveModal.style.display='none';});
+  </script>
+</body>
+</html>
